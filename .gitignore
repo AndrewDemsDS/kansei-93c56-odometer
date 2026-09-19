@@ -1,0 +1,14 @@
+# Upstream tools, vendored by clone. Reproducible; see README.
+tools/
+
+# Compiled binaries, build with `make`
+work/ch341_93cxx
+work/ch341_pulse
+
+# EEPROM images are deliberately not published; see README.
+dumps/
+probes/
+reference/
+
+__pycache__/
+*.pyc

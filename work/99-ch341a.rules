@@ -1,0 +1,2 @@
+# CH341A in EPP/MEM/I2C mode - allow userspace (libusb) access for ch341eeprom
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5512", MODE="0660", GROUP="users", TAG+="uaccess"

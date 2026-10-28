@@ -94,6 +94,74 @@ def encode(km):
     return store(vals), vals, to_km(vals)
 
 
+def swap(six_bytes):
+    """Swap the two bytes of each word: the other byte-order family (ANALYSIS 22.1)."""
+    return bytes(six_bytes[i ^ 1] for i in range(6))
+
+
+def partial_cells(six_bytes):
+    """How many cells are neither fully set nor fully clear."""
+    ws = [(six_bytes[i + 1] << 8) | six_bytes[i] for i in range(0, 6, 2)]
+    return sum(1 for w in ws for m, _ in BITS if w & m not in (0, m))
+
+
+def has_marker(six_bytes):
+    return all(six_bytes[i] & MARKER for i in range(0, 6, 2))
+
+
+def field_order(six_bytes):
+    """'native', 'swapped', or None when the field does not say which.
+
+    An order qualifies when every word carries the marker. When both do (a
+    field heavy in 0xFF bytes), the one with no partially-set cells wins.
+    """
+    ok = {o: f for o, f in (("native", six_bytes), ("swapped", swap(six_bytes)))
+          if has_marker(f)}
+    if len(ok) == 2:
+        ok = {o: f for o, f in ok.items() if partial_cells(f) == 0}
+    return next(iter(ok)) if len(ok) == 1 else None
+
+
+def patch(src, km, dst, order=None):
+    """Copy src to dst with the odometer field set to the reading closest to km.
+
+    Only the six bytes at FIELD change, written in the byte order the existing
+    field already uses. Refuses anything it cannot verify.
+    """
+    import os
+    if os.path.exists(dst):
+        sys.exit(f"refusing: {dst} exists, and patches never overwrite a file")
+    img = bytearray(open(src, "rb").read())
+    if len(img) != 256:
+        sys.exit(f"refusing: {src} is {len(img)} bytes, a 93C56 image is 256")
+    if max(img.count(b) for b in set(img)) > 240:
+        sys.exit(f"refusing: {src} is near-uniform, which is what a bad read looks like")
+    old = bytes(img[FIELD:FIELD + 6])
+    found = field_order(old)
+    if order is None:
+        order = found
+    if order is None:
+        sys.exit(f"refusing: the field at 0x{FIELD:02X} ({old.hex()}) does not decode "
+                 "cleanly in either byte order. Re-read the chip, and check the "
+                 "dump is from a Kansei 93C56 cluster")
+    cur = old if order == "native" else swap(old)
+    if not has_marker(cur):
+        sys.exit(f"refusing: the field ({old.hex()}) has no marker in {order} order")
+    new, vals, got = encode(km)
+    img[FIELD:FIELD + 6] = new if order == "native" else swap(new)
+    print(f"current field  {old.hex()}  {order} order  reads {to_km(load(cur)):,} km")
+    if partial_cells(cur):
+        print(f"  note: {partial_cells(cur)} partially-set cells, read by majority vote")
+    if order == "swapped":
+        print("  note: the swapped family is not validated against this scale")
+    print(f"new field      {bytes(img[FIELD:FIELD + 6]).hex()}  values={vals}  reads {got:,} km")
+    print("Check the current reading against the dash before writing. If it does")
+    print("not match, the cluster uses another scale (km vs miles), so do not write.")
+    with open(dst, "xb") as f:
+        f.write(img)
+    print(f"wrote {dst}")
+
+
 # Every physical reading this was derived from: stored field -> LCD reading.
 MEASURED = [
     ("800080008000", 52), ("803880008000", 160), ("800080008038", 110004),
@@ -125,3 +193,11 @@ if __name__ == "__main__":
         raw = open(a, "rb").read()[FIELD:FIELD + 6] if a.endswith(".bin") else bytes.fromhex(a)
         v = load(raw)
         print(f"{raw.hex()}  values={v}  reads {to_km(v):,} km")
+    elif sys.argv[1] == "patch" and len(sys.argv) in (5, 6):
+        opt = sys.argv[5] if len(sys.argv) == 6 else None
+        if opt not in (None, "--native", "--swapped"):
+            sys.exit("order override is --native or --swapped")
+        patch(sys.argv[2], int(sys.argv[3]), sys.argv[4], opt and opt[2:])
+    else:
+        sys.exit("usage: kansei_binary.py selftest | encode <km> | decode <dump|hex>\n"
+                 "       kansei_binary.py patch <in.bin> <km> <out.bin> [--native|--swapped]")

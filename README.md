@@ -97,8 +97,17 @@ from.
     work/kansei_binary.py selftest            # the solved encoding, with its measurements
     work/kansei_binary.py encode <reading>
     work/kansei_binary.py decode <dump|hex>
+    work/kansei_binary.py patch <in.bin> <reading> <out.bin>
     work/kansei.py <a> [b]          # cell-level structure, and diff two dumps
     work/cksweep.py [samples...]    # checksum search, kept as a negative result
+
+`patch` is the step from an encoded reading to a file you can write. It
+copies a verified read of your own chip and changes only the six bytes at
+`0x6A`, in the byte order the existing field already uses. It refuses a file
+that is not 256 bytes, a near-uniform read, a field that decodes cleanly in
+neither byte order, and an output path that already exists. It prints the
+current field's reading: check that against the dash before writing, because
+a mismatch means the cluster uses the other scale.
 
 `work/mw93c56/` is the same Microwire protocol as an Arduino or ESP32 sketch,
 for when a CH341A is not to hand.
